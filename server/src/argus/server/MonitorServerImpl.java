@@ -10,6 +10,11 @@ import argus.server.ai.Forecaster;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * The host's remote object. Agents on the VMs call it through RMI.
@@ -22,6 +27,11 @@ public class MonitorServerImpl implements MonitorServer {
     private final AlertManager alerts;
     private final MetricsStore store;
     private final ConcurrentHashMap<String, VmState> vms = new ConcurrentHashMap<>();
+    /** Pings run here, so a VM that never answers cannot block the failure detector. */
+    private final ExecutorService pingPool = Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "ping"); t.setDaemon(true); return t;
+    });
+    private static final long PING_TIMEOUT_MS = 3000;
 
     public MonitorServerImpl(String token, AlertManager alerts, MetricsStore store) {
         this.token = token;
@@ -54,6 +64,7 @@ public class MonitorServerImpl implements MonitorServer {
             alerts.raise(info.name, Alert.Level.INFO, wasDown ? "VM_UP" : "VM_JOIN",
                     wasDown ? "VM is back online after " + downFor(existing) : "Agent re-registered", 0);
             existing.downSince = 0;
+            existing.detector.ignoreNextSamples(); // the agent's JVM start-up is not an anomaly
         }
         return true;
     }
@@ -135,16 +146,21 @@ public class MonitorServerImpl implements MonitorServer {
             if (silent < heartbeatTimeoutMs) continue;
             vm.status = VmState.Status.SUSPECT;
             // the heartbeat is late: try to reach the VM ourselves before declaring it dead
+            // A powered-off VM does not refuse the connection, it just never answers:
+            // without our own timeout, TCP would keep retrying for ~20 s.
+            Future<String> ping = pingPool.submit(() -> vm.stub.ping());
             try {
-                vm.stub.ping();
+                ping.get(PING_TIMEOUT_MS, TimeUnit.MILLISECONDS);
                 alerts.raise(vm.info.name, Alert.Level.WARNING, "SLOW",
                         "No metrics for " + silent / 1000 + " s but the agent answers ping (overloaded VM?)", 60);
             } catch (Exception e) {
+                ping.cancel(true);
+                Throwable cause = e instanceof TimeoutException ? e : (e.getCause() != null ? e.getCause() : e);
                 vm.status = VmState.Status.DOWN;
                 vm.downSince = now;
                 alerts.raise(vm.info.name, Alert.Level.CRITICAL, "VM_DOWN",
                         "VM unreachable: no heartbeat for " + silent / 1000 + " s and ping failed ("
-                                + e.getClass().getSimpleName() + ")", 0);
+                                + (cause instanceof TimeoutException ? "no answer within 3 s" : cause.getClass().getSimpleName()) + ")", 0);
             }
         }
     }

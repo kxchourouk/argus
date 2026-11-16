@@ -62,6 +62,11 @@ public class AnomalyDetector {
     private int consecutive = 0;
     private static final int SKIP_FIRST = 3;
     private int skipped = 0;
+
+    /** Called when an agent restarts: its first samples (JVM start-up) are ignored again. */
+    public synchronized void ignoreNextSamples() {
+        skipped = 0;
+    }
     private double[] mean = new double[FEATURES.length], std = new double[FEATURES.length];
     private double threshold = 0.6;
 
