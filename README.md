@@ -273,7 +273,48 @@ Classic threshold rules (CPU > 90 % for 6 s, RAM > 90 %, disk > 90 %) run alongs
 
 ---
 
-## 9. Troubleshooting
+## 9. Results on real VMs
+
+Tested with the host (Windows) and two Ubuntu Server 26.04 VMs in VirtualBox (2 GB RAM, 2 CPUs each, Java 25), on the host-only network `192.168.56.0/24`.
+
+| Test | Result |
+|---|---|
+| Two agents | vm1 (`.101`) and vm2 (`.102`) registered, each with its own AI model and threshold |
+| Command on all VMs | `sysinfo` ran in parallel: 2/2 succeeded, 21 ms and 30 ms |
+| CPU stress on vm1 | `ANOMALY` (CPU 100 %, usual 5.0 ± 4.5, z = +19.0) and `CPU_HIGH` after 6 s |
+| Memory leak on vm1 (400 MB) | RAM 25.8 % → 50.9 %, `ANOMALY` from 36.5 % (z = +5.3), then `FORECAST`: +12.6 %/min, R² = 0.80, 90 % predicted in ~3.3 min |
+| Command to a saturated VM | `SocketTimeoutException` after 4 s and `SLOW`: the agent answers ping but its metrics are late |
+| Stress on vm2 only | vm2 flagged, vm1 stays normal (one model per VM) |
+| Agent stopped with Ctrl+C / normal shutdown | `VM_STOP`, status `STOPPED`, no alarm |
+| vm2 powered off in VirtualBox | `VM_DOWN` (CRITICAL), vm1 keeps running: partial failure |
+
+Two things learned from these tests:
+- **A slow VM and a dead VM look the same from outside.** Argus uses a heartbeat plus a ping with its own 3 s timeout to tell them apart (`SLOW` vs `VM_DOWN`).
+- **VMs share the host's processor.** While vm2 was stressed, vm1 also got a `SLOW` alert: virtual machines are isolated, but not completely in performance.
+
+### Screenshots
+
+**Two VMs, one command sent to both in parallel**
+![Two VMs, parallel command](docs/1-two-vms-parallel-command.png)
+
+**CPU anomaly detected by the AI (z = +19.0) and by the threshold rule**
+![CPU anomaly](docs/2-cpu-anomaly.png)
+
+**Memory leak: anomaly, then a forecast before saturation**
+![RAM forecast](docs/3-ram-forecast.png)
+
+**Overloaded VM: the command times out, Argus reports SLOW, not DOWN**
+![Overloaded VM](docs/4-overloaded-vm-slow.png)
+
+**Clean stop: STOPPED, no alarm**
+![Clean stop](docs/5-clean-stop.png)
+
+**VM powered off: VM_DOWN, the other VM keeps running**
+![VM down](docs/6-vm-down.png)
+
+---
+
+## 10. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
@@ -287,7 +328,7 @@ Classic threshold rules (CPU > 90 % for 6 s, RAM > 90 %, disk > 90 %) run alongs
 
 ---
 
-## 10. Course concepts covered
+## 11. Course concepts covered
 
 | Course concept | Where in the project |
 |---|---|
