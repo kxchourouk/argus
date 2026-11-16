@@ -1,0 +1,15 @@
+# systemd unit: starts the agent at boot and restarts it if it crashes.
+# Install:  sudo cp argus-agent.service /etc/systemd/system/
+#           sudo systemctl enable --now argus-agent
+[Unit]
+Description=Argus agent (Java RMI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/java -jar /opt/argus-agent.jar --server 192.168.56.1 --name vm1
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
